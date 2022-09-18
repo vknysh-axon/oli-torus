@@ -1,0 +1,42 @@
+global
+    # SSL options
+    ssl-default-bind-ciphers AES256+EECDH:AES256+EDH:!aNULL;
+    tune.ssl.default-dh-param 4096
+
+defaults
+    mode http
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+    option forwardfor
+
+    # never fail on address resolution
+    default-server init-addr last,libc,none
+
+frontend http
+    bind *:80
+    mode http
+
+    # if this is an ACME request to proof the domain owner, then redirect to certbot server
+    acl is_acme_challenge path_beg -i /.well-known/acme-challenge/
+
+    redirect scheme https code 301 if !is_acme_challenge !{ ssl_fc }
+
+    use_backend letsencrypt if is_acme_challenge
+
+frontend https
+    bind *:443 ssl crt /etc/haproxy/certs/cert.pem no-sslv3 no-tls-tickets no-tlsv10 no-tlsv11
+    http-response set-header Strict-Transport-Security "max-age=16000000; includeSubDomains; preload;"
+
+    acl no_server nbsrv(www) lt 1
+#    use_backend maintenance if no_server
+
+    default_backend www
+
+backend letsencrypt
+    server letsencrypt <LOCAL_IP>:64111
+
+backend www
+    server www <LOCAL_IP>:8080 check
+    http-request add-header X-Forwarded-Proto https if { ssl_fc }
+

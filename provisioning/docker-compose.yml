@@ -1,0 +1,63 @@
+version: "3.5"
+services:
+  #  postgres:
+  #     image: postgres
+  #    container_name: oli-postgres
+  #    ports:
+  #     - 5432:5432
+  #    environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres
+  #     - PGADMIN_DEFAULT_EMAIL=oliadmin@cmu.edu
+  #     - PGADMIN_DEFAULT_PASSWORD=opensesame
+  #    volumes:
+  #    - postgres_data:/var/lib/postgresql/data
+  #    networks:
+  #    - default
+
+  proxy:
+    container_name: haproxy
+    image: haproxy:2.6.1-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+      - /etc/haproxy/certs/:/etc/haproxy/certs/
+      - /etc/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - web
+
+  certbot:
+    container_name: certbot
+    image: certbot/certbot:latest
+    environment:
+      - DOMAIN_NAME=$DOMAIN_NAME
+    ports:
+      - '64111:64111'
+    entrypoint: "/bin/sh -c 'certbot certonly \
+                 --authenticator standalone --keep-until-expiring \
+                 --preferred-challenges http-01 --http-01-port 64111 -d $DOMAIN_NAME \
+                 --text \
+                 --agree-tos \
+                 --email example@axon.dev \
+                 && trap exit TERM; while :; do certbot renew && cat /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem \
+                 /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem \
+                 | tee /etc/haproxy/certs/cert.pem ; sleep 14d & wait $${!}; done;'"
+    volumes:
+      - /etc/haproxy/certs/:/etc/haproxy/certs/
+      - /etc/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - proxy
+    profiles:
+     - dev
+     - prod
+  web:
+    container_name: oli-torus
+    build: .
+    env_file: ./oli.env
+    ports:
+      - '8080:8080'
+# volumes:
+#  postgres_data:
+#     driver: local
